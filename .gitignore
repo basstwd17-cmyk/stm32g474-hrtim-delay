@@ -1,0 +1,32 @@
+# STM32CubeIDE build outputs
+Debug/
+Release/
+build/
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.o
+*.obj
+*.d
+*.su
+*.cyclo
+*.gcno
+*.gcda
+
+# IDE/workspace metadata
+.metadata/
+.vscode/
+.idea/
+
+# Temporary and backup files
+*.bak
+*.tmp
+*.log
+*.codex-backup-*
+_backup_before_cleanup_*/
+
+# OS files
+Thumbs.db
+Desktop.ini
