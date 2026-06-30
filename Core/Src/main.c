@@ -35,10 +35,10 @@
 #define TD1_RISE_TICK           544U
 #define TD1_WIDTH_TICK          544U
 #define TD1_FALL_TICK           (TD1_RISE_TICK + TD1_WIDTH_TICK)
-#define TD2_RISE_TICK           1632U
+#define TD2_WIDTH_TICK          544U
 #define JOYSTICK_DEBOUNCE_MS    200U
 #define JOYSTICK_SETTLE_MS      2U
-#define WIDTH_STEP_COUNT        10U
+#define DELAY_STEP_COUNT        12U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,12 +50,12 @@
 HRTIM_HandleTypeDef hhrtim1;
 
 /* USER CODE BEGIN PV */
-static const uint16_t td2_width_ticks[WIDTH_STEP_COUNT] = {
-  544U, 272U, 109U, 54U, 27U, 11U, 6U, 3U, 2U, 1U
+static const uint16_t td2_delay_ticks[DELAY_STEP_COUNT] = {
+  544U, 272U, 136U, 54U, 27U, 16U, 6U, 5U, 4U, 3U, 2U, 1U
 };
-static volatile uint8_t width_index = 0U;
-static volatile int8_t pending_width_step = 0;
-static volatile uint8_t pending_width_reset = 0U;
+static volatile uint8_t delay_index = 0U;
+static volatile int8_t pending_delay_step = 0;
+static volatile uint8_t pending_delay_reset = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -63,16 +63,18 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_HRTIM1_Init(void);
 /* USER CODE BEGIN PFP */
-static void Apply_TD2_Width(void);
+static void Apply_TD2_Delay(void);
 static void Process_Joystick_Command(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static void Apply_TD2_Width(void)
+static void Apply_TD2_Delay(void)
 {
-  uint32_t cmp4 = TD2_RISE_TICK + td2_width_ticks[width_index];
+  uint32_t cmp3 = TD1_RISE_TICK + td2_delay_ticks[delay_index];
+  uint32_t cmp4 = cmp3 + TD2_WIDTH_TICK;
 
+  __HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_D, HRTIM_COMPAREUNIT_3, cmp3);
   __HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_D, HRTIM_COMPAREUNIT_4, cmp4);
 }
 
@@ -82,35 +84,35 @@ static void Process_Joystick_Command(void)
   uint8_t reset;
 
   __disable_irq();
-  step = pending_width_step;
-  reset = pending_width_reset;
-  pending_width_step = 0;
-  pending_width_reset = 0U;
+  step = pending_delay_step;
+  reset = pending_delay_reset;
+  pending_delay_step = 0;
+  pending_delay_reset = 0U;
   __enable_irq();
 
   if (reset != 0U)
   {
-    width_index = 0U;
-    Apply_TD2_Width();
+    delay_index = 0U;
+    Apply_TD2_Delay();
     HAL_Delay(JOYSTICK_SETTLE_MS);
     return;
   }
 
   if (step > 0)
   {
-    if (width_index < (WIDTH_STEP_COUNT - 1U))
+    if (delay_index < (DELAY_STEP_COUNT - 1U))
     {
-      width_index++;
-      Apply_TD2_Width();
+      delay_index++;
+      Apply_TD2_Delay();
       HAL_Delay(JOYSTICK_SETTLE_MS);
     }
   }
   else if (step < 0)
   {
-    if (width_index > 0U)
+    if (delay_index > 0U)
     {
-      width_index--;
-      Apply_TD2_Width();
+      delay_index--;
+      Apply_TD2_Delay();
       HAL_Delay(JOYSTICK_SETTLE_MS);
     }
   }
@@ -309,12 +311,12 @@ static void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = TD2_RISE_TICK;
+  pCompareCfg.CompareValue = TD1_RISE_TICK + td2_delay_ticks[0];
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_D, HRTIM_COMPAREUNIT_3, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = TD2_RISE_TICK + td2_width_ticks[0];
+  pCompareCfg.CompareValue = TD1_RISE_TICK + td2_delay_ticks[0] + TD2_WIDTH_TICK;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_D, HRTIM_COMPAREUNIT_4, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
@@ -479,15 +481,15 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
   if ((GPIO_Pin == JOYSTICK_RIGHT_Pin) || (GPIO_Pin == JOYSTICK_DOWN_Pin))
   {
-    pending_width_step = 1;
+    pending_delay_step = 1;
   }
   else if ((GPIO_Pin == JOYSTICK_LEFT_Pin) || (GPIO_Pin == JOYSTICK_UP_Pin))
   {
-    pending_width_step = -1;
+    pending_delay_step = -1;
   }
   else if (GPIO_Pin == JOYSTICK_SEL_Pin)
   {
-    pending_width_reset = 1U;
+    pending_delay_reset = 1U;
   }
 }
 /* USER CODE END 4 */
