@@ -31,14 +31,48 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+/*
+ * Timing profile:
+ * - HRTIM_TIMING_PROFILE_MAX_RES: 170 MHz x 32 = 183.824 ps/tick
+ * - HRTIM_TIMING_PROFILE_500PS:   125 MHz x 16 = 500 ps/tick
+ * - HRTIM_TIMING_PROFILE_250PS:   125 MHz x 32 = 250 ps/tick
+ */
+#define HRTIM_TIMING_PROFILE_MAX_RES  0U
+#define HRTIM_TIMING_PROFILE_500PS    1U
+#define HRTIM_TIMING_PROFILE_250PS    2U
+#define HRTIM_TIMING_PROFILE          HRTIM_TIMING_PROFILE_500PS
+
+#if (HRTIM_TIMING_PROFILE == HRTIM_TIMING_PROFILE_MAX_RES)
+#define HRTIM_PLLN_VALUE        85U
+#define HRTIM_PLLR_VALUE        RCC_PLLR_DIV2
+#define HRTIM_TIMER_PRESCALER   HRTIM_PRESCALERRATIO_MUL32
 #define HRTIM_PERIOD_TICK       5440U
-#define TD1_RISE_TICK           544U
-#define TD1_WIDTH_TICK          544U
+#define HRTIM_100NS_TICK        544U
+#elif (HRTIM_TIMING_PROFILE == HRTIM_TIMING_PROFILE_500PS)
+#define HRTIM_PLLN_VALUE        125U
+#define HRTIM_PLLR_VALUE        RCC_PLLR_DIV4
+#define HRTIM_TIMER_PRESCALER   HRTIM_PRESCALERRATIO_MUL16
+#define HRTIM_PERIOD_TICK       2000U
+#define HRTIM_100NS_TICK        200U
+#elif (HRTIM_TIMING_PROFILE == HRTIM_TIMING_PROFILE_250PS)
+#define HRTIM_PLLN_VALUE        125U
+#define HRTIM_PLLR_VALUE        RCC_PLLR_DIV4
+#define HRTIM_TIMER_PRESCALER   HRTIM_PRESCALERRATIO_MUL32
+#define HRTIM_PERIOD_TICK       4000U
+#define HRTIM_100NS_TICK        400U
+#else
+#error "Unsupported HRTIM_TIMING_PROFILE"
+#endif
+
+#define TD1_WIDTH_TICK          HRTIM_100NS_TICK
+#define TD1_RISE_TICK           ((HRTIM_PERIOD_TICK / 2U) - (TD1_WIDTH_TICK / 2U))
 #define TD1_FALL_TICK           (TD1_RISE_TICK + TD1_WIDTH_TICK)
-#define TD2_WIDTH_TICK          544U
+#define TD2_WIDTH_TICK          TD1_WIDTH_TICK
+#define TD2_DELAY_INITIAL_TICK  0U
+#define TD2_DELAY_STEP_TICK     1U
+#define TD2_DELAY_MAX_TICK      (HRTIM_PERIOD_TICK - TD1_FALL_TICK - TD2_WIDTH_TICK)
 #define JOYSTICK_DEBOUNCE_MS    200U
 #define JOYSTICK_SETTLE_MS      2U
-#define DELAY_STEP_COUNT        12U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,10 +84,7 @@
 HRTIM_HandleTypeDef hhrtim1;
 
 /* USER CODE BEGIN PV */
-static const uint16_t td2_delay_ticks[DELAY_STEP_COUNT] = {
-  544U, 272U, 136U, 54U, 27U, 16U, 6U, 5U, 4U, 3U, 2U, 1U
-};
-static volatile uint8_t delay_index = 0U;
+static volatile uint16_t td2_delay_tick = TD2_DELAY_INITIAL_TICK;
 static volatile int8_t pending_delay_step = 0;
 static volatile uint8_t pending_delay_reset = 0U;
 /* USER CODE END PV */
@@ -71,7 +102,7 @@ static void Process_Joystick_Command(void);
 /* USER CODE BEGIN 0 */
 static void Apply_TD2_Delay(void)
 {
-  uint32_t cmp3 = TD1_RISE_TICK + td2_delay_ticks[delay_index];
+  uint32_t cmp3 = TD1_FALL_TICK + td2_delay_tick;
   uint32_t cmp4 = cmp3 + TD2_WIDTH_TICK;
 
   __HAL_HRTIM_SETCOMPARE(&hhrtim1, HRTIM_TIMERINDEX_TIMER_D, HRTIM_COMPAREUNIT_3, cmp3);
@@ -92,7 +123,7 @@ static void Process_Joystick_Command(void)
 
   if (reset != 0U)
   {
-    delay_index = 0U;
+    td2_delay_tick = TD2_DELAY_INITIAL_TICK;
     Apply_TD2_Delay();
     HAL_Delay(JOYSTICK_SETTLE_MS);
     return;
@@ -100,21 +131,29 @@ static void Process_Joystick_Command(void)
 
   if (step > 0)
   {
-    if (delay_index < (DELAY_STEP_COUNT - 1U))
+    if ((td2_delay_tick + TD2_DELAY_STEP_TICK) < TD2_DELAY_MAX_TICK)
     {
-      delay_index++;
-      Apply_TD2_Delay();
-      HAL_Delay(JOYSTICK_SETTLE_MS);
+      td2_delay_tick += TD2_DELAY_STEP_TICK;
     }
+    else
+    {
+      td2_delay_tick = TD2_DELAY_MAX_TICK;
+    }
+    Apply_TD2_Delay();
+    HAL_Delay(JOYSTICK_SETTLE_MS);
   }
   else if (step < 0)
   {
-    if (delay_index > 0U)
+    if (td2_delay_tick > TD2_DELAY_STEP_TICK)
     {
-      delay_index--;
-      Apply_TD2_Delay();
-      HAL_Delay(JOYSTICK_SETTLE_MS);
+      td2_delay_tick -= TD2_DELAY_STEP_TICK;
     }
+    else
+    {
+      td2_delay_tick = 0U;
+    }
+    Apply_TD2_Delay();
+    HAL_Delay(JOYSTICK_SETTLE_MS);
   }
 }
 /* USER CODE END 0 */
@@ -194,10 +233,10 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV4;
-  RCC_OscInitStruct.PLL.PLLN = 85;
+  RCC_OscInitStruct.PLL.PLLN = HRTIM_PLLN_VALUE;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV8;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV8;
-  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
+  RCC_OscInitStruct.PLL.PLLR = HRTIM_PLLR_VALUE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -256,7 +295,7 @@ static void MX_HRTIM1_Init(void)
   }
   pTimeBaseCfg.Period = HRTIM_PERIOD_TICK;
   pTimeBaseCfg.RepetitionCounter = 0x00;
-  pTimeBaseCfg.PrescalerRatio = HRTIM_PRESCALERRATIO_MUL32;
+  pTimeBaseCfg.PrescalerRatio = HRTIM_TIMER_PRESCALER;
   pTimeBaseCfg.Mode = HRTIM_MODE_CONTINUOUS;
   if (HAL_HRTIM_TimeBaseConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_D, &pTimeBaseCfg) != HAL_OK)
   {
@@ -311,12 +350,12 @@ static void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = TD1_RISE_TICK + td2_delay_ticks[0];
+  pCompareCfg.CompareValue = TD1_FALL_TICK + td2_delay_tick;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_D, HRTIM_COMPAREUNIT_3, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = TD1_RISE_TICK + td2_delay_ticks[0] + TD2_WIDTH_TICK;
+  pCompareCfg.CompareValue = TD1_FALL_TICK + td2_delay_tick + TD2_WIDTH_TICK;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_D, HRTIM_COMPAREUNIT_4, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();

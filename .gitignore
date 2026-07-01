@@ -21,6 +21,7 @@ build/
 .idea/
 
 # Temporary and backup files
+tmp/
 *.bak
 *.tmp
 *.log
