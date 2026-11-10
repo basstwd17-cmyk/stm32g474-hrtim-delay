@@ -22,7 +22,7 @@ The current firmware configures HRTIM Timer D to generate short pulse outputs:
 
 1. Open STM32CubeIDE.
 2. Select `File > Import... > Existing Projects into Workspace`.
-3. Select this repository folder: `C:\KIST\stm32g474-hrtim-delay`.
+3. Select this repository folder
 4. Import the `stm32g474-hrtim-delay` project.
 5. Run `Project > Clean...`.
 6. Build the `Debug` configuration.
